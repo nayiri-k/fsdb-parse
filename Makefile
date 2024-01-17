@@ -53,36 +53,36 @@ all: $(TEST_PROGRAM)
 dump_signal$(EXE_EXT): ./cpp/dump_signal$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
 	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/dump_signal$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
 
-ds$(EXE_EXT): ./cpp/dump_signals$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
-	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/dump_signals$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
+# ds$(EXE_EXT): ./cpp/dump_signals$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
+# 	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/dump_signals$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
 
-db$(EXE_EXT): ./cpp/dump_sigbits$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
-	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/dump_sigbits$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
+# db$(EXE_EXT): ./cpp/dump_sigbits$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
+# 	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/dump_sigbits$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
 
-dt$(EXE_EXT): ./cpp/dump_toggles$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
+dump_toggles$(EXE_EXT): ./cpp/dump_toggles$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
 	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/dump_toggles$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
 
-do$(EXE_EXT): ./cpp/dump_ones$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
+dump_ones$(EXE_EXT): ./cpp/dump_ones$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
 	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/dump_ones$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
 
-et$(EXE_EXT): ./cpp/get_sim_endtime$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
+get_sim_endtime$(EXE_EXT): ./cpp/get_sim_endtime$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
 	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/get_sim_endtime$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
 
-ph$(EXE_EXT): ./cpp/print_header$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
+print_header$(EXE_EXT): ./cpp/print_header$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
 	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/print_header$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
 
-pi$(EXE_EXT): ./cpp/print_info$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
-	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/print_info$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
+# print_info$(EXE_EXT): ./cpp/print_info$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
+# 	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/print_info$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
 
-argp$(EXE_EXT): ./cpp/argp$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
-	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/argp$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
+# argp$(EXE_EXT): ./cpp/argp$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
+# 	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/argp$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
 
 
-rv$(EXE_EXT): ./cpp/read_verilog$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
-	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/read_verilog$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
+# rv$(EXE_EXT): ./cpp/read_verilog$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
+# 	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/read_verilog$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
 
-rvnk$(EXE_EXT): ./cpp/read_verilog_nk$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
-	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/read_verilog_nk$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
+# rvnk$(EXE_EXT): ./cpp/read_verilog_nk$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
+# 	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/read_verilog_nk$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
 
 
 .cpp$(POLY_OBJ): $(PROGRAM_NAMES)

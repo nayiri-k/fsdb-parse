@@ -14,7 +14,7 @@ def main():
     w = args.workload
     wp = get_waveform_path(w,args.rtl)
     output_file = get_outfile_path('headers',w,args.rtl)
-    cmd = f"./ph {wp} > {output_file}"
+    cmd = f"./print_header {wp} > {output_file}"
     print(f"Running: {cmd}")
     os.system(cmd)
 
