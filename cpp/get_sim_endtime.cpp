@@ -98,7 +98,7 @@ main(int argc, char *argv[])
     
     if (argc != 3) {
     fprintf(stderr, "argc: %u\n",argc);
-	fprintf(stderr, "usage: et verilog_type.fsdb end_time.txt\n");
+	fprintf(stderr, "usage: ./get_sim_endtime verilog_type.fsdb end_time.txt\n");
 	return FSDB_RC_FAILURE;
     }
 

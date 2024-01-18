@@ -67,7 +67,7 @@ int
 main(int argc, char *argv[])
 {
     if (2 != argc) {
-	fprintf(stdout, "usage: ./ph verilog_type_fsdb\n");
+	fprintf(stdout, "usage: ./print_header verilog_type_fsdb\n");
 	return FSDB_RC_FAILURE;
     }
 
