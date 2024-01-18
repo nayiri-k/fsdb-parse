@@ -30,11 +30,11 @@ Next, we parse these headers to extract signal idcodes.
 From here, we can do a number of things. 
 
 ```
-// get simulation end time (in ns)
-./get_sim_endtime waveform.fsdb end_time.txt
-
 // dump one signal's (time, value changes) to a file
 ./dump_signal -h
+
+// get simulation end time (in ns)
+./get_sim_endtime waveform.fsdb end_time.txt
 
 // dump each signal's toggle activity per window of time (creates a matrix)
 ./dump_toggles -h
@@ -43,3 +43,8 @@ From here, we can do a number of things.
 ./dump_ones -h
 ```
 
+## Simple flow with Chipyard
+
+See the `flows/flow.ipynb` Jupyter Notebook for an example flow that runs a workload on a Chipyard design in RTL simulation,
+then parses the waveform and extracts the time-indexed instruction trace.
+The flow assumes you run the commands printed by cells marked with a `# RUN THIS` comment before advancing to the next cell.
