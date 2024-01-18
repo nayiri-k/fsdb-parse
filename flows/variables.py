@@ -1,4 +1,5 @@
-root_dir = os.path.dirname(os.getcwd())
+dirs = os.path.abspath(os.getcwd()).split('/')
+root_dir = '/'.join(dirs[:dirs.index('fsdb-parse')+1])
 
 try:
     chipyard_dir
