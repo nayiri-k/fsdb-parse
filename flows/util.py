@@ -1,3 +1,11 @@
+import os
+import yaml
+import json
+from textwrap import dedent
+import numpy as np
+import matplotlib.pyplot as plt
+
+
 exec(open("./variables.py").read())
 
 
@@ -19,7 +27,7 @@ def get_workload_sigvals(w,rtl='RocketConfig',idcode=None):
     
     bin_file = get_outfile_path('sigvals',w,rtl=rtl, idcode=idcode)
 
-    array = np.fromfile(bin_file,dtype=numpy.uint8)
+    array = np.fromfile(bin_file,dtype=np.uint8)
     bitwidth = convert_uint8_to_uint32(array[0:4])
     interval = 8+bitwidth
     times = [convert_uint8_to_uint32(array[i:i+8]) for i in range(4,len(array)-8+1,interval)]

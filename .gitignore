@@ -1,0 +1,6 @@
+cpp/*.o
+dump_ones
+dump_signal
+dump_toggles
+get_sim_endtime
+print_header
