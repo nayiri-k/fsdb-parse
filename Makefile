@@ -25,7 +25,7 @@
 
 arch = linux64
 
-INC_DIR = /tools/synopsys/verdi/P-2019.06-SP2-12/share/FsdbReader
+INC_DIR = /tools/synopsys/verdi/$(VERDI_VERSION)/share/FsdbReader
 LINUX_DIR = $(INC_DIR)/$(arch)
 # INC_DIR = /tools/C/nayiri/power/power-analysis/fsdb
 
@@ -36,7 +36,7 @@ PORT_LIB_SEARCH = $(LINUX_DIR)/libnffr.so $(LINUX_DIR)/libnsys.so
 include ./cpp/FILE_LIST.mk
 
 # VG_GNU_LIB = $(VG_GNU_PACKAGE)/linux/gcc/lib64
-VG_GNU_LIB = /opt/rh/devtoolset-8/root/usr/lib64
+VG_GNU_LIB = /opt/rh/gcc-toolset-13/root/usr/lib64
 SHARD_LIB = -L$(LINUX_DIR) -lnffr -lnsys
 
 # in run time:
@@ -53,20 +53,40 @@ all: $(TEST_PROGRAM)
 dump_signal$(EXE_EXT): ./cpp/dump_signal$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
 	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/dump_signal$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
 
+dump_hd_intervals$(EXE_EXT): ./cpp/dump_hd_intervals$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
+	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/dump_hd_intervals$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
+
+dump_toggles_intervals$(EXE_EXT): ./cpp/dump_toggles_intervals$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
+	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/dump_toggles_intervals$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
+
+dump_hd$(EXE_EXT): ./cpp/dump_hd$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
+	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/dump_hd$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
+
 # ds$(EXE_EXT): ./cpp/dump_signals$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
 # 	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/dump_signals$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
 
 # db$(EXE_EXT): ./cpp/dump_sigbits$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
 # 	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/dump_sigbits$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
 
+dump_toggles_buses$(EXE_EXT): ./cpp/dump_toggles$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
+	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/dump_toggles$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
+
+
 dump_toggles$(EXE_EXT): ./cpp/dump_toggles$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
 	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/dump_toggles$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
+
+dump_toggles0$(EXE_EXT): ./cpp/dump_toggles0$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
+	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/dump_toggles0$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
 
 dump_ones$(EXE_EXT): ./cpp/dump_ones$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
 	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/dump_ones$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
 
 get_sim_endtime$(EXE_EXT): ./cpp/get_sim_endtime$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
 	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/get_sim_endtime$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
+
+get_header$(EXE_EXT): ./cpp/get_header$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
+	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/get_header$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)
+
 
 print_header$(EXE_EXT): ./cpp/print_header$(POLY_OBJ) $(INC_DIR)/ffrAPI.h 
 	$(CXX_LINKER) $(FSDB_TARGET) $(CXXFLAGS) ./cpp/print_header$(POLY_OBJ) $(PORT_LIB_SEARCH) $(ALL_LIBS)

@@ -45,7 +45,9 @@ static struct argp_option options[] = {
   {"out",         'o', "out_toggles.bin",       0,  "Output file" },
   {"start",       's', "start_time_ns",         0,  "Start time (ns)" },
   {"end",         'e', "end_time_ns",           0,  "End time (ns)" },
-  {"num_toggles", 'n', "clk_toggles/window",    0,  "Number of clock toggles per window" },
+  {"windowlen",   'w', "windowlen_ns",          0,  "Length of each window (ns)" },
+  {"embedding",   'm', "embedding_method",      0,  "One of: toggles, ones" },
+  {"verbose",     'v', 0,                       0,  "Verbose output" },
   { 0 }
 };
 
@@ -57,7 +59,9 @@ struct arguments
   char *fpath_toggles;
   ulong_T start_time;
   ulong_T end_time;
-  uint_T num_toggles;
+  uint_T windowlen;
+  char *embedding;
+  bool verbose;
 };
 
 /* Parse a single option. */
@@ -85,8 +89,14 @@ parse_opt (int key, char *arg, struct argp_state *state)
     case 'e':
       arguments->end_time = atoi(arg);
       break;
-    case 'n':
-      arguments->num_toggles = atoi(arg);
+    case 'w':
+      arguments->windowlen = atoi(arg);
+      break;
+    case 'm':
+      arguments->embedding = arg;
+      break;
+    case 'v':
+      arguments->verbose = 1;
       break;
     default:
       return ARGP_ERR_UNKNOWN;
@@ -106,22 +116,8 @@ static struct argp argp = { options, parse_opt, args_doc, doc };
 #define TRUE	1
 #endif
 
-// #define PRINT_CHANGE
-#define PRINT_ARRAY
-
-uint_T CLOCK_PERIOD = 4;
-uint_T TIMESCALE = 1000; // timescale 1ns/10ps
-uint_T MAX_TIME=0;
-uint_T N_ROWS;
-uint_T M_COLS;
-int i;
-
 // #define BUFFER_TYPE uint_T
 #define BUFFER_TYPE unsigned short int
-BUFFER_TYPE* toggles_buff;
-
-uint_T* idcodes_buff;
-uint_T idcode;
 
 //
 // The tree callback function, it's used to traverse the design 
@@ -148,42 +144,10 @@ __DumpVar(fsdbTreeCBDataVar *var);
 static void 
 __DumpVar_less(fsdbTreeCBDataVar *var);
 
-static bool_T 
-__ValChng(ffrVCTrvsHdl vc_trvs_hdl, 
-		   fsdbTag64 *time, byte_T *vc_ptr, 
-           byte_T *prev_vc_ptr);
-
-static void 
-__PrintTimeValChng(ffrVCTrvsHdl vc_trvs_hdl, 
-		   fsdbTag64 *time, byte_T *vc_ptr);
 
 int 
 main(int argc, char *argv[])
 {
-    // fprintf(stderr, "Size of uint16: %u, Size of uint32: %u\n",
-    //     sizeof(unsigned short int), sizeof(uint_T));
-    
-    // if (!((4 <= argc) && (argc <= 6))) {
-    // fprintf(stderr, "argc: %u\n",argc);
-	// fprintf(stderr, "usage: dt verilog_type.fsdb idcodes.txt out_toggles.bin [start_time [end_time]]\n");
-	// return FSDB_RC_FAILURE;
-    // }
-
-
-    // char *fpath_fsdb = argv[1];
-    // char *fpath_idcodes = argv[2];
-    // char *fpath_toggles = argv[3];
-    // ulong_T start_time = 0;
-    // ulong_T end_time = 0;
-    // if (argc >= 5) {
-    //     start_time = atoi(argv[4]);
-    // }
-    // fprintf(stderr, "Start time: %lu\n",start_time);
-
-    // if (argc >= 6) {
-    //     end_time = atoi(argv[5]);
-    // }
-
     struct arguments arguments;
 
     /* Default values. */
@@ -192,50 +156,84 @@ main(int argc, char *argv[])
     arguments.fpath_toggles = (char*) "-";
     arguments.start_time = 0;
     arguments.end_time = 0;
-    arguments.num_toggles = 100;
+    arguments.windowlen = 4000;
+    arguments.verbose = false;
 
     /* Parse our arguments; every option seen by parse_opt will
         be reflected in arguments. */
     argp_parse (&argp, argc, argv, 0, 0, &arguments);
 
-    printf ("fsdb_file= %s\nidcodes_file = %s\nbin_file = %s\n"
-            "start_time = %lu\nend_time = %ld\nnum_toggles = %u\n",
+    printf ("fsdb_file = %s\nidcodes_file = %s\nbin_file = %s\n"
+            "start_time = %lu\nend_time = %ld\nwindowlen = %u\nembedding = %s\n",
             arguments.fpath_fsdb, arguments.fpath_idcodes,
             arguments.fpath_toggles,
-            arguments.start_time, arguments.end_time, arguments.num_toggles);
+            arguments.start_time, arguments.end_time,
+            arguments.windowlen, arguments.embedding);
     
     char *fpath_fsdb = arguments.fpath_fsdb;
     char *fpath_idcodes = arguments.fpath_idcodes;
     char *fpath_toggles = arguments.fpath_toggles;
-    ulong_T start_time = arguments.start_time;
-    ulong_T end_time = arguments.end_time;
+    ulong_T start_time_ns = arguments.start_time;
+    ulong_T end_time_ns = arguments.end_time;
+    bool verbose = arguments.verbose;
+    uint_T WINDOWLEN = arguments.windowlen;
+    char *embedding = arguments.embedding;
 
-    ulong_T start_simtime = (ulong_T) start_time*TIMESCALE;
-    
-    uint_T N_CLOCK_CYCLES = arguments.num_toggles;
-    uint_T TW_L = TIMESCALE*N_CLOCK_CYCLES*CLOCK_PERIOD;  // time window length
-
-
-    if (FALSE == ffrObject::ffrIsFSDB(fpath_fsdb)) {
-	fprintf(stderr, "%s is not an fsdb file.\n", fpath_fsdb);
-	return FSDB_RC_FAILURE;
-    }
+    // READ FSDB FILE
+    if (FALSE == ffrObject::ffrIsFSDB(fpath_fsdb)) {   fprintf(stderr, "%s is not an fsdb file.\n", fpath_fsdb);    return FSDB_RC_FAILURE; }
 
     ffrFSDBInfo fsdb_info;
-
     ffrObject::ffrGetFSDBInfo(fpath_fsdb, fsdb_info);
-    if (FSDB_FT_VERILOG != fsdb_info.file_type) {
-  	fprintf(stderr, "file type is not verilog.\n");
-	return FSDB_RC_FAILURE;
+    if (FSDB_FT_VERILOG != fsdb_info.file_type) {   fprintf(stderr, "file type is not verilog.\n");	return FSDB_RC_FAILURE;    }
+
+    ffrObject *fsdb_obj = ffrObject::ffrOpen3(fpath_fsdb);
+    if (NULL == fsdb_obj) { 	fprintf(stderr, "ffrObject::ffrOpen() failed.\n");	exit(FSDB_RC_OBJECT_CREATION_FAILED);    }
+    fsdb_obj->ffrSetTreeCBFunc(__MyTreeCB, NULL);
+
+
+    // GET TIMESCALE
+    str_T scale_unit = fsdb_obj->ffrGetScaleUnit();
+    uint_T digit;
+    char   *unit;
+    ffrObject::ffrExtractScaleUnit(scale_unit, digit, unit);
+    fprintf(stderr, "SCALE = %u, unit = %s\n", digit, unit);
+    uint_T TIMESCALE;
+    if      (strcmp(unit,"ns")==0)  TIMESCALE = 1;
+    else if (strcmp(unit,"ps")==0)  TIMESCALE = 1000;
+    else if (strcmp(unit,"fs")==0)  TIMESCALE = 1000000;
+    else { fprintf(stderr, "Unsupported FSDB scale unit: %s.\n", unit); exit(1); }
+    TIMESCALE *= digit;
+    fprintf(stderr, "FSDB timescale: %u%s, _ ns x %u --> <timescale>\n", digit,unit,TIMESCALE);
+
+    ulong_T start_simtime = (ulong_T) start_time_ns * TIMESCALE;
+    ulong_T end_simtime   = (ulong_T) end_time_ns * TIMESCALE;
+
+    // EMBEDDING TYPE
+    bool_T emb_toggles, emb_ones = FALSE;
+    if (strcmp(embedding,"toggles") == 0) emb_toggles = TRUE;
+    else if (strcmp(embedding,"ones") == 0) emb_ones = TRUE;
+    else {
+        fprintf(stderr, "Unsupported signal embedding value: %s\n", embedding);
+        exit(1);
+    }
+    fprintf(stderr, "Embeddings: toggles-%u, ones-%u\n", emb_toggles,emb_ones);
+
+    // START/END SIM TIMES
+    fsdbTag64 current_tagtime,start_tagtime,end_tagtime;
+    start_tagtime.L = (uint_T) start_simtime;
+    start_tagtime.H = (uint_T) (start_simtime >> 32);
+    fsdb_obj->ffrGetMaxFsdbTag64(&end_tagtime);
+    ulong_T sim_end_simtime = ((ulong_T) end_tagtime.H << 32) + end_tagtime.L;
+    if ((sim_end_simtime < end_simtime) || (end_simtime == 0)) end_simtime = sim_end_simtime;
+
+    if (verbose) {
+        fprintf(stderr, "Start time: %lu %s\n", start_simtime,unit);
+        fprintf(stderr, "End time:   %lu %s [ignore if == 0]\n",   end_simtime,unit);
     }
 
-    ffrObject *fsdb_obj =
-	ffrObject::ffrOpen3(fpath_fsdb);
-    if (NULL == fsdb_obj) {
-	fprintf(stderr, "ffrObject::ffrOpen() failed.\n");
-	exit(FSDB_RC_OBJECT_CREATION_FAILED);
-    }
-    fsdb_obj->ffrSetTreeCBFunc(__MyTreeCB, NULL);
+
+    uint_T TW_L = WINDOWLEN * TIMESCALE;  // time window length
+
 
     FILE *f_idcodes = fopen(fpath_idcodes, "r");
     if (f_idcodes == NULL) {
@@ -245,9 +243,10 @@ main(int argc, char *argv[])
 
     // LOAD IDCODES FROM FILE
     // first value of idcodes file is the number of idcodes
+    uint_T N_ROWS, M_COLS;
     fscanf(f_idcodes, "%u ", &N_ROWS);
-    idcodes_buff = (uint_T*) malloc(N_ROWS*sizeof(uint_T));
-    i = 0;
+    uint_T* idcodes_buff = (uint_T*) malloc(N_ROWS*sizeof(uint_T));
+    uint_T i = 0; uint_T idcode;
     while (fscanf(f_idcodes, "%u ", &idcode) == 1) {
         idcodes_buff[i] = idcode;
         i += 1;
@@ -259,140 +258,57 @@ main(int argc, char *argv[])
         return 0;
     }
 
-    if (FSDB_FT_VERILOG != fsdb_obj->ffrGetFileType()) {
-	fprintf(stderr, 
-		"%s is not verilog type fsdb, just return.\n", fpath_fsdb);
-	fsdb_obj->ffrClose();
-	return FSDB_RC_SUCCESS;
-    }
+    if (FSDB_FT_VERILOG != fsdb_obj->ffrGetFileType()) { fprintf(stderr, "%s is not verilog type fsdb, just return.\n", fpath_fsdb); fsdb_obj->ffrClose(); return FSDB_RC_SUCCESS; }
 
-    //
-    // Activate the tree callback funciton, read the design 
-    // hierarchies. Application has to perform proper type case 
-    // on tree callback data based on the callback type, then uses 
-    // the type case structure view to access the wanted data.
-    //
+
     fsdb_obj->ffrReadScopeVarTree();
-    fprintf(stderr, "Read design hierarchy.\n");
+    if (verbose) fprintf(stderr, "Read design hierarchy.\n");
 
-    //
-    // Each unique var is represented by a unique idcode in fsdb 
-    // file, these idcodes are positive integer and continuous from 
-    // the smallest to the biggest one. So the maximum idcode also 
-    // means that how many unique vars are there in this fsdb file. 
-    //
-    // Application can know the maximum var idcode by the following
-    // API:
-    //
-    //		ffrGetMaxVarIdcode()
-    //
-    // fsdbVarIdcode max_var_idcode = fsdb_obj->ffrGetMaxVarIdcode();
-    // id codes range from 1 - max_var_idcode
-    // N_ROWS = (uint_T) max_var_idcode;  // number of rows = # variables
 
-    //
-    // In order to load value changes of vars onto memory, application
-    // has to tell fsdb reader about what vars it's interested in. 
-    // Application selects the interested vars by giving their idcodes
-    // to fsdb reader, this is done by the following API:
-    //
-    //		ffrAddToSignalList()
-    // 
+    // ADD ALL SIGNALS TO LIST
     for (i = 0; i < N_ROWS; i++) {
         idcode = idcodes_buff[i];
         fsdb_obj->ffrAddToSignalList(idcode);
     }
-    fprintf(stderr, "Added signals to list.\n");
+    if (verbose) fprintf(stderr, "Added signals to list.\n");
     	
 
-    //
-    // Load the value changes of the selected vars onto memory. Note 
-    // that value changes of unselected vars are not loaded.
-    //
     fsdb_obj->ffrLoadSignals();
-    fprintf(stderr, "Loaded signals.\n");
+    if (verbose) fprintf(stderr, "Loaded signals.\n");
+    
 
-    //
-    // In order to traverse the value changes of a specific var,
-    // application must create a value change traverse handle for 
-    // that sepcific var. Once the value change traverse handle is 
-    // created successfully, there are lots of traverse functions 
-    // available to traverse the value changes backward and forward, 
-    // or jump to a sepcific time, etc.
-    //
-    ffrVCTrvsHdl vc_trvs_hdl;
-
-    fsdbTag64 time;
     int	      glitch_num;
     byte_T    *vc_ptr;
+    byte_T    *prev_vc_ptr;
 
     uint_T cntr = 0;
 
+    // // iterate over first signal to get maximum time
+    // idcode = idcodes_buff[0];
 
-    ulong_T max_time_H = 0;
-    ulong_T max_time_L = 0;
-    
-    // if (end_time == 0) {
-    ulong_T sim_end_time = 0;
-    // TODO: idk if we need to iterate over all signals, or is first one sufficient? bc doesn't every signal switch to X...?
-    idcode = FSDB_MIN_VAR_IDCODE;
-    // for (i = 0; i < N_ROWS; i++) {
-    //     idcode = idcodes_buff[i];
-        
-    vc_trvs_hdl = fsdb_obj->ffrCreateVCTraverseHandle(idcode);
-        if (NULL == vc_trvs_hdl) {
-        fprintf(stderr, "Failed to create a traverse handle(%u)\n", 
-            idcode);
-        exit(FSDB_RC_OBJECT_CREATION_FAILED);
-        }
-    // Get the maximim time(xtag) where has value change. 
-    vc_trvs_hdl->ffrGetMaxXTag((void*)&time);
-    if ((time.H > max_time_H) ||
-        ((time.H == max_time_H) && (time.L > max_time_L))
-        )
-    {
-        max_time_H = time.H;
-        max_time_L = time.L;
-    }
-    // }
-    sim_end_time = ((max_time_H << 32) + max_time_L)/TIMESCALE;
-    if ((sim_end_time < end_time) || (end_time == 0)) end_time = sim_end_time;
-    // }
-    fprintf(stderr, "End time: %lu\n",end_time);
-    // fprintf(stderr, "End time parts: %u %u\n",max_time_H, max_time_L);
-
-    ulong_T end_simtime = (ulong_T) end_time*TIMESCALE;
-    
-    M_COLS = (uint_T) (end_time - start_time)/N_CLOCK_CYCLES/CLOCK_PERIOD;  // # columns = # time entries
-
-    fprintf(stderr, "Number of signals to process: %u\n", N_ROWS);
-    fprintf(stderr, "Number of time windows: %u\n", M_COLS);
-    fprintf(stderr, "Array shape: (%u,%u)\n", 
-            N_ROWS, M_COLS);
+    // vc_trvs_hdl = fsdb_obj->ffrCreateVCTraverseHandle(idcode);
+    // if (NULL == vc_trvs_hdl) { fprintf(stderr, "Failed to create a traverse handle(%u)\n",  idcode); exit(FSDB_RC_OBJECT_CREATION_FAILED);  }
+    // // Get the maximim time(xtag) where has value change. 
+    // vc_trvs_hdl->ffrGetMaxXTag((void*)&time);
+    // ulong_T max_time_H = time.H;
+    // ulong_T max_time_L = time.L;
+    // ulong_T sim_end_simtime = ((ulong_T) time.H << 32) + time.L;
     
 
-    toggles_buff = (BUFFER_TYPE*) malloc(M_COLS*sizeof(BUFFER_TYPE));
-    
+    M_COLS = (uint_T) (end_simtime - start_simtime)/TW_L;  // # columns = # time entries
 
-    // since we know both N and M, write these to file first
-    // write NxM array dimensions
-    // need 4 bytes bc N_ROWS could exceed max value of uint16
+    if (verbose) fprintf(stderr, "Number of signals to process: %u\n", N_ROWS);
+    if (verbose) fprintf(stderr, "Number of time windows: %u\n", M_COLS);
+    if (verbose) fprintf(stderr, "Array shape: (%u,%u)\n", N_ROWS, M_COLS);
     
-    fwrite(&N_ROWS, sizeof(uint_T), 1, f_toggles);
-    fwrite(&M_COLS, sizeof(uint_T), 1, f_toggles);
+    BUFFER_TYPE* buff_sigembs = (BUFFER_TYPE*) malloc(M_COLS*sizeof(BUFFER_TYPE));
     
-    //
-    // We have traversed the value changes associated with the var 
-    // whose idcode is max_var_idcode, now we are going to traverse
-    // the value changes of the other vars. The idcode of the other
-    // vars is from FSDB_MIN_VAR_IDCODE, which is 1, to 
-    // max_var_idcode 
-    //
-    
-    fprintf(stderr, "Reading idcodes from: %s\n", fpath_idcodes);
-    fprintf(stderr, "Writing to file: %s\n", fpath_toggles);
+    if (verbose) fprintf(stderr, "Reading idcodes from: %s\n", fpath_idcodes);
+    if (verbose) fprintf(stderr, "Writing to file: %s\n", fpath_toggles);
 
-    uint_T idx = 0;
+    uint_T sig_bitwidth, val_sigemb;
+
+    ffrVCTrvsHdl vc_trvs_hdl;
     
     for (i = 0; i < N_ROWS; i++) {
         idcode = idcodes_buff[i];
@@ -405,69 +321,62 @@ main(int argc, char *argv[])
             exit(FSDB_RC_OBJECT_CREATION_FAILED);
             }
 
-        //
-        // Get the minimum time(xtag) where has value change. 
-        // 
-        vc_trvs_hdl->ffrGetMinXTag((void*)&time);
-
-        //
-        // Jump to the minimum time(xtag). 
-        // 
-        vc_trvs_hdl->ffrGotoXTag((void*)&time);
-
-        //
-        // Traverse all the value changes from the minimum time
-        // to the maximum time.
-        //
-        
-        
-        uint_T num_toggles = 0;
+        vc_trvs_hdl->ffrGotoXTag((void*)&start_tagtime);
+        vc_trvs_hdl->ffrGetVC(&vc_ptr);
+        sig_bitwidth = vc_trvs_hdl->ffrGetBitSize();
 
         ulong_T time_window = TW_L + start_simtime;
-        ulong_T current_vc_simtime = 0;
+        ulong_T prev_vc_simtime, current_vc_simtime = 0;
 
-        
-        idx = 0;
+        uint_T idx_sigemb = 0;
+        uint_T ibit;
         // zero out buffer
-        memset(toggles_buff, (BUFFER_TYPE) 0, M_COLS*sizeof(BUFFER_TYPE));
+        memset(buff_sigembs, (BUFFER_TYPE) 0, M_COLS*sizeof(BUFFER_TYPE));
         do {
-            vc_trvs_hdl->ffrGetXTag(&time);
+            vc_trvs_hdl->ffrGetXTag(&current_tagtime);
+            prev_vc_ptr = vc_ptr;
+            vc_trvs_hdl->ffrGetVC(&vc_ptr);
 
-            current_vc_simtime = ((ulong_T) time.H << 32) + time.L;
+            prev_vc_simtime = current_vc_simtime;
+            current_vc_simtime = ((ulong_T) current_tagtime.H << 32) + current_tagtime.L;
             if (current_vc_simtime <= start_simtime) {
-                num_toggles = 0;
-            } else if (current_vc_simtime > end_simtime) {
+                continue;
+            } else if ((end_simtime != 0) && (current_vc_simtime > end_simtime)) {
                 break;
             } else if (current_vc_simtime >= time_window) {
                 // write previous time window
-                toggles_buff[idx] = (BUFFER_TYPE) num_toggles;
+                buff_sigembs[idx_sigemb] = (BUFFER_TYPE) val_sigemb;
                 // bump up time_window to point to current time window
                 while (current_vc_simtime >= time_window) {
-                    time_window += TW_L; idx += 1;
+                    if (emb_ones) {
+                        for (ibit=0; ibit<sig_bitwidth; ibit++) {
+                            if (prev_vc_ptr[ibit] == FSDB_BT_VCD_1) val_sigemb += (uint_T) 2*(time_window - prev_vc_simtime)/TW_L;
+                        }
+                        buff_sigembs[idx_sigemb] = (BUFFER_TYPE) val_sigemb;
+                    }
+                    val_sigemb = 0;
+                    prev_vc_simtime = time_window;
+                    time_window += TW_L; idx_sigemb += 1;
                 }
-                if (idx > M_COLS) {
-                    fprintf(stderr, "ERROR: index exceeds number of columns (idx: %u, curr_simtime: %u, end_simtime: %u)\n", 
-                            idx, (uint_T) current_vc_simtime, end_simtime);
-                    return 0;
-                }
-                num_toggles = 0;
+                if (idx_sigemb > M_COLS) { fprintf(stderr, "ERROR: index exceeds number of columns (idx: %u, curr_simtime: %lu)\n", idx_sigemb, current_vc_simtime); return 0; }
+                val_sigemb = 0;
             }
-            num_toggles += 1;            
+            for (ibit=0; ibit<sig_bitwidth; ibit++) {
+                if (emb_toggles && (prev_vc_ptr[ibit] != vc_ptr[ibit]))
+                    val_sigemb++;
+                else if (emb_ones && (prev_vc_ptr[ibit] == FSDB_BT_VCD_1))
+                    val_sigemb += (uint_T) 2*(current_vc_simtime - prev_vc_simtime)/TW_L;
+            }
         } while(FSDB_RC_SUCCESS == vc_trvs_hdl->ffrGotoNextVC());
         // NOTE (nk): technically we throw out last incomplete time window
         // free this value change traverse handle
         vc_trvs_hdl->ffrFree();
 
         // write data to buffer
-        fwrite(toggles_buff, sizeof(BUFFER_TYPE), M_COLS, f_toggles);
-        // if (!all_zeros) {
-        //     // write data to buffer
-        //     fwrite(toggles_buff, sizeof(BUFFER_TYPE), M_COLS, f_toggles);
-        // }        
+        fwrite(buff_sigembs, sizeof(BUFFER_TYPE), M_COLS, f_toggles);
     }
     
-
-    free(toggles_buff);
+    free(buff_sigembs);
     
     fclose(f_toggles);
 
@@ -480,157 +389,6 @@ main(int argc, char *argv[])
     return 0;
 }
 
-static bool_T 
-__ValChng(ffrVCTrvsHdl vc_trvs_hdl, 
-		   fsdbTag64 *time, byte_T *vc_ptr, 
-           byte_T *prev_vc_ptr)
-{ 
-    static byte_T buffer[FSDB_MAX_BIT_SIZE+1];
-    byte_T        *ret_vc;
-    uint_T        i;
-    fsdbVarType   var_type; 
-    
-    switch (vc_trvs_hdl->ffrGetBytesPerBit()) {
-    case FSDB_BYTES_PER_BIT_1B:
-        for (i = 0; i < vc_trvs_hdl->ffrGetBitSize(); i++) {
-            if (vc_ptr[i] != prev_vc_ptr[i]) {
-                return TRUE;
-            }
-        }
-        return FALSE;
-	break;
-
-    case FSDB_BYTES_PER_BIT_4B:
-        return FALSE;
-        // var_type = vc_trvs_hdl->ffrGetVarType();
-        // switch(var_type){
-        // case FSDB_VT_VCD_MEMORY_DEPTH:
-        // case FSDB_VT_VHDL_MEMORY_DEPTH:
-	    // fprintf(stderr, "time: (%u %u)", time->H, time->L);
-        //     fprintf(stderr, "  begin: %d", *((int*)vc_ptr));
-        //     vc_ptr = vc_ptr + sizeof(uint_T);
-        //     fprintf(stderr, "  end: %d\n", *((int*)vc_ptr));  
-        //     break;
-               
-        // default:    
-        //     vc_trvs_hdl->ffrGetVC(&vc_ptr);
-	    // fprintf(stderr, "time: (%u %u)  val chg: %f\n",
-        //             time->H, time->L, *((float*)vc_ptr));
-	    // break;
-        // }
-        break;
-
-    case FSDB_BYTES_PER_BIT_8B:
-        return ((*((double*)vc_ptr)) != (*((double*)prev_vc_ptr)));
-	break;
-    }
-    return FALSE;
-}
-
-
-static void 
-__PrintTimeValChng(ffrVCTrvsHdl vc_trvs_hdl, 
-		   fsdbTag64 *time, byte_T *vc_ptr)
-{ 
-    static byte_T buffer[FSDB_MAX_BIT_SIZE+1];
-    byte_T        *ret_vc;
-    uint_T        i;
-    fsdbVarType   var_type; 
-    
-    switch (vc_trvs_hdl->ffrGetBytesPerBit()) {
-    case FSDB_BYTES_PER_BIT_1B:
-
-	//
- 	// Convert each verilog bit type to corresponding
- 	// character.
- 	//
-        for (i = 0; i < vc_trvs_hdl->ffrGetBitSize(); i++) {
-	    switch(vc_ptr[i]) {
-            case FSDB_BT_VCD_0:
-                buffer[i] = '0';
-                break;
-
-            case FSDB_BT_VCD_1:
-                buffer[i] = '1';
-                break;
-
-            case FSDB_BT_VCD_X:
-                buffer[i] = 'x';
-                break;
-
-            case FSDB_BT_VCD_Z:
-                buffer[i] = 'z';
-                break;
-
-            default:
-            //
-            // unknown verilog bit type found.
-            //
-                buffer[i] = 'u';
-            }
-        }
-        buffer[i] = '\0';
-	fprintf(stderr, "time: (%u %u)  val chg: %s\n",
-		time->H, time->L, buffer);	
-	break;
-
-    case FSDB_BYTES_PER_BIT_4B:
-	//
-	// Not 0, 1, x, z since their bytes per bit is
-	// FSDB_BYTES_PER_BIT_1B. 
- 	//
-	// For verilog type fsdb, there is no array of 
-  	// real/float/double so far, so we don't have to
-	// care about that kind of case.
-	//
-
-        //
-        // The var type of memory range variable is
-        // FSDB_VT_VCD_MEMORY_DEPTH. This kind of var
-        // has two value changes at certain time step.
-        // The first value change is the index of the 
-        // beginning memory variable which has a value change
-        // and the second is the index of the end memory variable
-        // which has a value change at this time step. The index
-        // is stored as an unsigned integer and its bpb is 4B.
-        //
-        
-        var_type = vc_trvs_hdl->ffrGetVarType();
-        switch(var_type){
-        case FSDB_VT_VCD_MEMORY_DEPTH:
-        case FSDB_VT_VHDL_MEMORY_DEPTH:
-	    fprintf(stderr, "time: (%u %u)", time->H, time->L);
-            fprintf(stderr, "  begin: %d", *((int*)vc_ptr));
-            vc_ptr = vc_ptr + sizeof(uint_T);
-            fprintf(stderr, "  end: %d\n", *((int*)vc_ptr));  
-            break;
-               
-        default:    
-            vc_trvs_hdl->ffrGetVC(&vc_ptr);
-	    fprintf(stderr, "time: (%u %u)  val chg: %f\n",
-                    time->H, time->L, *((float*)vc_ptr));
-	    break;
-        }
-        break;
-
-    case FSDB_BYTES_PER_BIT_8B:
-	//
-	// Not 0, 1, x, z since their bytes per bit is
-	// FSDB_BYTES_PER_BIT_1B. 
- 	//
-	// For verilog type fsdb, there is no array of 
-  	// real/float/double so far, so we don't have to
-	// care about that kind of case.
-	//
-	fprintf(stderr, "time: (%u %u)  val chg: %e\n",
-		time->H, time->L, *((double*)vc_ptr));
-	break;
-
-    default:
-	fprintf(stderr, "Control flow should not reach here.\n");
-	break;
-    }
-}
 
 static bool_T __MyTreeCB(fsdbTreeCBType cb_type, 
 			 void *client_data, void *tree_cb_data)

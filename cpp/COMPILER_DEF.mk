@@ -1,12 +1,12 @@
-GCC_BIN = /opt/rh/devtoolset-8/root/usr/bin/gcc
-GXX_BIN = /opt/rh/devtoolset-8/root/usr/bin/g++
+GCC_BIN = /opt/rh/gcc-toolset-13/root/usr/bin/gcc
+GXX_BIN = /opt/rh/gcc-toolset-13/root/usr/bin/g++
 # GCC_BIN = /usr/bin/gcc
 # GXX_BIN = /usr/bin/g++
 CC = $(GCC_BIN)
 CC_LINKER = $(GCC_BIN)
 CXX = $(GXX_BIN)
 CXX_LINKER = $(GXX_BIN)
-LOAD_LIBS = -lXft -lXt -lXmu -lX11 -lXext -lfontconfig -lm -lnsl -liberty -lpthread -lrt -ldl -Wl,-E
+LOAD_LIBS = -lXft -lXt -lXmu -lX11 -lXext -lfontconfig -lm -liberty -lpthread -lrt -ldl -Wl,-E
 # omitted: -lXss 
 FSDB_LINKER_OUT = -o
 FSDB_TARGET = -o $@
