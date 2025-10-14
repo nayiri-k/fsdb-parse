@@ -228,7 +228,7 @@ main(int argc, char *argv[])
 
     if (verbose) {
         fprintf(stderr, "Start time: %lu %s\n", start_simtime,unit);
-        fprintf(stderr, "End time:   %lu %s [ignore if == 0]\n",   end_simtime,unit);
+        fprintf(stderr, "End time:   %lu %s\n",   end_simtime,unit);
     }
 
 
@@ -282,18 +282,6 @@ main(int argc, char *argv[])
     byte_T    *prev_vc_ptr;
 
     uint_T cntr = 0;
-
-    // // iterate over first signal to get maximum time
-    // idcode = idcodes_buff[0];
-
-    // vc_trvs_hdl = fsdb_obj->ffrCreateVCTraverseHandle(idcode);
-    // if (NULL == vc_trvs_hdl) { fprintf(stderr, "Failed to create a traverse handle(%u)\n",  idcode); exit(FSDB_RC_OBJECT_CREATION_FAILED);  }
-    // // Get the maximim time(xtag) where has value change. 
-    // vc_trvs_hdl->ffrGetMaxXTag((void*)&time);
-    // ulong_T max_time_H = time.H;
-    // ulong_T max_time_L = time.L;
-    // ulong_T sim_end_simtime = ((ulong_T) time.H << 32) + time.L;
-    
 
     M_COLS = (uint_T) (end_simtime - start_simtime)/TW_L;  // # columns = # time entries
 
