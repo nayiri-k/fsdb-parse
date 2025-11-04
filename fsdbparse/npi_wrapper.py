@@ -75,14 +75,14 @@ class NPI():
         return sigs
 
 
-    def embed_signal(self,sn,window_ns,embedding='toggles',start_ns=None,end_ns=None):
+    def embed_signal(self,sn,window_ns,embedding='toggles',start_ns=None,end_ns=None,merge_buses=False):
         min_time, max_time = self.fsdbfile.min_time(), self.fsdbfile.max_time()
         start = int(start_ns / self.scale_to_ns()) if start_ns is not None else min_time
         end   = int(end_ns   / self.scale_to_ns()) if end_ns   is not None else max_time
 
         assert end <= max_time, "Interval end must be before FSDB end"
 
-        emb_options = ['toggles','ones']
+        emb_options = ['toggles','ones','trans']
         emb = {k: (embedding==k) for k in emb_options}
         assert(sum(emb.values())  == 1), f"embedding must be one of {emb_options}"
 
@@ -126,11 +126,10 @@ class NPI():
         windows = (time_ns // window_ns).astype(np.uint64)
 
         # remove first value b/c this is start time
-        if emb['toggles']:
+        if emb['toggles'] or emb['trans']:
             # display(sigbits,windows,time_ns)
             df_emb = sigbits.diff().iloc[1:].astype(bool)
             windows = windows[1:]
-            
         elif emb['ones']:
             # add all window boundaries
             # + \
@@ -164,9 +163,19 @@ class NPI():
             df_emb = pd.concat(dfs,axis=1)
 
         # window data
-        df_windows = df_emb.groupby(by=windows,axis=0).sum()
+        grouped = df_emb.groupby(by=windows,axis=0)
+        if emb['trans']:    df_windows = grouped.any()
+        else:               df_windows = grouped.sum()
         df_windows = df_windows.astype(np.uint16)  # window values are small
         df_windows.index.name = 'window'
+
+        if merge_buses:
+            grps = df_windows.columns.str.split('-bit').str[0]
+            grouped = df_windows.groupby(grps,axis=1)
+            if emb['trans']: df_windows = grouped.any()
+            else: df_windows = grouped.sum()
+            df_windows = df_windows.sort_index()
+            
 
         return df_windows
 

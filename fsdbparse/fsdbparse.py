@@ -83,7 +83,7 @@ class FSDBData():
                     intervals: list = None,  # NOT IMPLEMENTED
                     cache_dpath: Path = Path.cwd()/"out",
                     sigset: str = None,
-                    embedding: str = 'toggles', # one of: toggles, ones,
+                    embedding: str = 'toggles', # one of: toggles, ones, trans
                     name_ext: str = '',
                     overwrite: bool = False,
                     print_only: bool = False,
@@ -102,8 +102,8 @@ class FSDBData():
         self.end_time = int(end_time)
         self.intervals = Path(intervals) if intervals else False
         self.embedding = embedding
-        feature_ext_dict = dict(toggles='t',ones='o')
-        self.feature_ext = feature_ext_dict[self.embedding]
+        # feature_ext_dict = dict(toggles='t',ones='o')
+        # self.feature_ext = feature_ext_dict[self.embedding]
 
 
         if len(name_ext) > 0 and name_ext[0] != '.': name_ext = '.'+name_ext
@@ -317,7 +317,6 @@ class FSDBData():
         if self.overwrite or not f.exists() or (f.exists() and os.stat(f).st_size < 100):
             self.dump_embedding(self.fsdb_fpath,f)
         if not bin_fpath.exists(): return
-        toggles = None
         array = np.fromfile(bin_fpath,dtype=np.uint16)
         if len(array) == 0:
             print(f"WARNING: Empty file at {bin_fpath}")
@@ -329,13 +328,11 @@ class FSDBData():
         except ValueError:
             print(f"WARNING: Incomplete file (len={len(array)}, num rows={len(array)//N}) at {bin_fpath}")
             return
-        w_embedding = np.transpose(arr_reshape)
-        toggles = np.concatenate([toggles,w_embedding],axis=0) if toggles is not None else w_embedding
-        os.remove(bin_fpath)
-        if toggles is None: return
-        if self.verbose: print(f"Writing compressed toggles w/ shape {toggles.shape} -> {str(self.fpaths['emb_csc'])}")
-        sparse_matrix = scipy.sparse.csc_matrix(toggles)
+        embedding = np.transpose(arr_reshape)
+        if self.verbose: print(f"Writing compressed embedding w/ shape {embedding.shape} -> {str(self.fpaths['emb_csc'])}")
+        sparse_matrix = scipy.sparse.csc_matrix(embedding)
         scipy.sparse.save_npz(self.fpaths['emb_csc'],sparse_matrix)
+        os.remove(bin_fpath)
 
 
     def get_embedding(self, index=True, print_only=False) -> pd.DataFrame:

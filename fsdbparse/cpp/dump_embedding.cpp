@@ -209,14 +209,15 @@ main(int argc, char *argv[])
     ulong_T end_simtime   = (ulong_T) end_time_ns * TIMESCALE;
 
     // EMBEDDING TYPE
-    bool_T emb_toggles, emb_ones = FALSE;
+    bool_T emb_toggles, emb_ones, emb_trans = FALSE;
     if (strcmp(embedding,"toggles") == 0) emb_toggles = TRUE;
     else if (strcmp(embedding,"ones") == 0) emb_ones = TRUE;
+    else if (strcmp(embedding,"trans") == 0) emb_trans = TRUE;
     else {
         fprintf(stderr, "Unsupported signal embedding value: %s\n", embedding);
         exit(1);
     }
-    fprintf(stderr, "Embeddings: toggles-%u, ones-%u\n", emb_toggles,emb_ones);
+    fprintf(stderr, "Embeddings: toggles-%u, ones-%u, trans-\n", emb_toggles,emb_ones,emb_trans);
 
     // START/END SIM TIMES
     fsdbTag64 current_tagtime,start_tagtime,end_tagtime;
@@ -352,7 +353,7 @@ main(int argc, char *argv[])
                         val_sigemb = (BUFFER_TYPE)((float) val_ones / ((float)TW_L/1000.0));
                         // if (idcode == 18404) printf("2 %lu %lu %lu %u %u \n",prev_vc_simtime,time_window,val_ones,TW_L,val_sigemb);
                     }
-                    if (idcode == 18404) printf("%lu %lu %u \n",prev_vc_simtime,time_window,val_sigemb);
+                    // if (idcode == 18404) printf("%lu %lu %u \n",prev_vc_simtime,time_window,val_sigemb);
                     buff_sigembs[idx_sigemb] = val_sigemb;
                     val_ones = 0; val_sigemb = 0;
                     prev_vc_simtime = time_window;
@@ -362,8 +363,12 @@ main(int argc, char *argv[])
             }
             for (ibit=0; ibit<sig_bitwidth; ibit++) {
                 // if (idcode == 18408) printf("idx=%u,b0 vs b1 %u %u\n",idx_sigemb,prev_vc[ibit],vc_ptr[ibit]);
-                if (emb_toggles && (prev_vc[ibit] != vc_ptr[ibit]))
+                if (emb_trans) {
+                    val_sigemb = 1;
+                }
+                else if (emb_toggles && (prev_vc[ibit] != vc_ptr[ibit])) {
                     val_sigemb++;
+                }
                 else if (emb_ones && (prev_vc[ibit] == FSDB_BT_VCD_1))
                 {
                     val_ones += current_vc_simtime - prev_vc_simtime;
