@@ -8,15 +8,13 @@ import pandas as pd
 import struct
 from datetime import datetime, timedelta
 
-
-from util import Util
-
-from globalvars import *
+from fsdbparse.globalvars import *
 
 class NPI():
     '''wrapper for Verdi NPI python functions'''
 
     def __init__(self,fsdb_fpath: str):
+        fsdb_fpath = str(fsdb_fpath)
 
         # run npisys.init once
         try: npisys
@@ -77,9 +75,11 @@ class NPI():
         return sigs
 
 
-    def embed_signal(self,sn,start_ns,end_ns,window_ns,embedding='toggles'):
-        start,end = (int(t / self.scale_to_ns()) for t in (start_ns,end_ns))
+    def embed_signal(self,sn,window_ns,embedding='toggles',start_ns=None,end_ns=None):
         min_time, max_time = self.fsdbfile.min_time(), self.fsdbfile.max_time()
+        start = int(start_ns / self.scale_to_ns()) if start_ns is not None else min_time
+        end   = int(end_ns   / self.scale_to_ns()) if end_ns   is not None else max_time
+
         assert end <= max_time, "Interval end must be before FSDB end"
 
         emb_options = ['toggles','ones']
@@ -121,13 +121,49 @@ class NPI():
         sigbits = sigbits.replace('x','0')  # TODO: not sure how to represent x values...
         sigbits = sigbits.astype(int).astype(bool)
 
+        times = sigbits.index.values
+        time_ns = times * self.scale_to_ns()
+        windows = (time_ns // window_ns).astype(np.uint64)
+
         # remove first value b/c this is start time
-        if emb['toggles']: df_emb = sigbits.diff().iloc[1:].astype(bool)
-        elif emb['ones']:  df_emb = sigbits.iloc[1:]
+        if emb['toggles']:
+            # display(sigbits,windows,time_ns)
+            df_emb = sigbits.diff().iloc[1:].astype(bool)
+            windows = windows[1:]
+            
+        elif emb['ones']:
+            # add all window boundaries
+            # + \
+            # idxs = [i for i in range(window_ns-1,int(time_ns[-1]+window_ns),window_ns)]
+            idxs = [i for i in range(0,int(time_ns[-1]+window_ns),window_ns)]
+            idxs = [int(i / self.scale_to_ns()) for i in idxs if i not in sigbits.index]
+            sigbits = pd.concat([sigbits,
+                                    pd.DataFrame(pd.NA,index=idxs,columns=sigbits.columns)],
+                                    axis=0).sort_index().ffill() 
+            times = sigbits.index.values
+            time_ns = times * self.scale_to_ns()
+            windows = (time_ns // window_ns).astype(np.uint64)
+            dfs = []
+            for col in sigbits.columns:
+                cur_vals = sigbits[col]
+                cur_time = time_ns.copy()
+                next_time = np.append(time_ns[1:],np.inf)
+                window_end = (windows + 1) * window_ns
+                assert((cur_time <= window_end).all())
+                mask = (next_time > window_end)
+                next_time[mask] = window_end[mask]
+                time_diff = next_time - cur_time
+                assert((time_diff <= window_ns).all())
+                ones = np.zeros(cur_vals.shape)
+                # ilocs = np.where(cur_vals)[0]
+                # display(ilocs.shape,ones[ilocs].shape,time_diff[ilocs].reshape(ilocs.shape).shape)
+                # display(list(zip(cur_time,next_time,window_end,time_diff.astype(int))))
+                ones[cur_vals] = time_diff[cur_vals]
+                ones = ones / (window_ns/1000)
+                dfs += [pd.Series(ones,index=sigbits.index,name=col)]
+            df_emb = pd.concat(dfs,axis=1)
 
         # window data
-        time_ns = df_emb.index.values * self.scale_to_ns()
-        windows = (time_ns // window_ns).astype(np.uint64)
         df_windows = df_emb.groupby(by=windows,axis=0).sum()
         df_windows = df_windows.astype(np.uint16)  # window values are small
         df_windows.index.name = 'window'
@@ -136,104 +172,104 @@ class NPI():
 
 
     
-    def interval_embed_signals(self,sigfullnames,window_len,start_ns=None,end_ns=None):
-        # try: self.loaded_sigs
-        # except AttributeError:
-        #     print(f"Signals not loaded, run load_sigs_by_names() first")
-        #     raise Exception
-        keys = ['intro','createvc','gotonext','pdseries','window','concat']
-        times = {k: timedelta(0) for k in keys}
-        chkpt = datetime.now()
-        start,end = (int(t / self.scale_to_ns()) if t is not None else None for t in (start_ns,end_ns))
-        min_time, max_time = self.fsdbfile.min_time(), self.fsdbfile.max_time()
-        assert end <= max_time, "Interval end must be before FSDB end"
-        toggles_l = []
-        ones_l = []
+    # def interval_embed_signals(self,sigfullnames,window_len,start_ns=None,end_ns=None):
+    #     # try: self.loaded_sigs
+    #     # except AttributeError:
+    #     #     print(f"Signals not loaded, run load_sigs_by_names() first")
+    #     #     raise Exception
+    #     keys = ['intro','createvc','gotonext','pdseries','window','concat']
+    #     times = {k: timedelta(0) for k in keys}
+    #     chkpt = datetime.now()
+    #     start,end = (int(t / self.scale_to_ns()) if t is not None else None for t in (start_ns,end_ns))
+    #     min_time, max_time = self.fsdbfile.min_time(), self.fsdbfile.max_time()
+    #     assert end <= max_time, "Interval end must be before FSDB end"
+    #     toggles_l = []
+    #     ones_l = []
         
-        self.fsdbfile.unload_vc()
-        self.fsdbfile.reset_sig_list()
-        if start or end: self.fsdbfile.load_vc_by_range(start,end) # don't think this works...it just loads whole range
-        times['intro'] += datetime.now() - chkpt
+    #     self.fsdbfile.unload_vc()
+    #     self.fsdbfile.reset_sig_list()
+    #     if start or end: self.fsdbfile.load_vc_by_range(start,end) # don't think this works...it just loads whole range
+    #     times['intro'] += datetime.now() - chkpt
 
-        for i,sn in enumerate(sigfullnames):
-            chkpt = datetime.now()
-            sig = self.fsdbfile.sig_by_name(sn)
-            sr = (sig.left_range(),sig.right_range())
-            sw = max(sr) - min(sr) + 1
+    #     for i,sn in enumerate(sigfullnames):
+    #         chkpt = datetime.now()
+    #         sig = self.fsdbfile.sig_by_name(sn)
+    #         sr = (sig.left_range(),sig.right_range())
+    #         sw = max(sr) - min(sr) + 1
             
-            vct = sig.create_vct()
-            if start or end: self.fsdbfile.load_vc_by_range(start,end) # don't think this works...it just loads whole range
+    #         vct = sig.create_vct()
+    #         if start or end: self.fsdbfile.load_vc_by_range(start,end) # don't think this works...it just loads whole range
 
-            times['createvc'] += datetime.now() - chkpt
-            chkpt = datetime.now()
+    #         times['createvc'] += datetime.now() - chkpt
+    #         chkpt = datetime.now()
             
-            # ret = vct.goto_first()
-            ret =  vct.goto_time(start) if start else vct.goto_first()
-            sigval_dict = {vct.time(): vct.value()}
-            while vct.goto_next():
-                if end and (vct.time() > end): break
-                sigval_dict[vct.time()] = vct.value()
-            # if len(sigval_dict) > 1e5: print(i,len(sigval_dict))
+    #         # ret = vct.goto_first()
+    #         ret =  vct.goto_time(start) if start else vct.goto_first()
+    #         sigval_dict = {vct.time(): vct.value()}
+    #         while vct.goto_next():
+    #             if end and (vct.time() > end): break
+    #             sigval_dict[vct.time()] = vct.value()
+    #         # if len(sigval_dict) > 1e5: print(i,len(sigval_dict))
 
-            times['gotonext'] += datetime.now() - chkpt
-            chkpt = datetime.now()
+    #         times['gotonext'] += datetime.now() - chkpt
+    #         chkpt = datetime.now()
 
-            vct.release()
-            vct = None
-            self.fsdbfile.unload_vc()
+    #         vct.release()
+    #         vct = None
+    #         self.fsdbfile.unload_vc()
             
-            sigvals = pd.Series(sigval_dict,name=sig.full_name(),dtype="string")
-            sigvals = sigvals.sort_index()
-            sigvals = sigvals.ffill(axis=0)
+    #         sigvals = pd.Series(sigval_dict,name=sig.full_name(),dtype="string")
+    #         sigvals = sigvals.sort_index()
+    #         sigvals = sigvals.ffill(axis=0)
 
-            if i % 100 == 0:
-                print(f"\tsig #{i}...")
+    #         if i % 100 == 0:
+    #             print(f"\tsig #{i}...")
                 
 
-            sigbits = {}
-            if sw > 1:
-                for bit in range(0,sw):
-                    sigbits[sn+f'-bit{bit}'] = sigvals.str[bit]
-                sigbits = pd.DataFrame(sigbits)
-            else: sigbits = sigvals.to_frame(sn)
-            sigbits = sigbits.replace('x','0')  # TODO: not sure how to represent x values...
-            sigbits = sigbits.astype(int).astype(bool)
+    #         sigbits = {}
+    #         if sw > 1:
+    #             for bit in range(0,sw):
+    #                 sigbits[sn+f'-bit{bit}'] = sigvals.str[bit]
+    #             sigbits = pd.DataFrame(sigbits)
+    #         else: sigbits = sigvals.to_frame(sn)
+    #         sigbits = sigbits.replace('x','0')  # TODO: not sure how to represent x values...
+    #         sigbits = sigbits.astype(int).astype(bool)
 
-            # remove first value b/c this is start time
-            toggles = sigbits.diff().iloc[1:].astype(np.uint64)
-            sigbits = sigbits.iloc[1:]
+    #         # remove first value b/c this is start time
+    #         toggles = sigbits.diff().iloc[1:].astype(np.uint64)
+    #         sigbits = sigbits.iloc[1:]
 
-            times['pdseries'] += datetime.now() - chkpt
-            chkpt = datetime.now()
+    #         times['pdseries'] += datetime.now() - chkpt
+    #         chkpt = datetime.now()
 
-            # window data
-            time_ns = sigbits.index.values * self.scale_to_ns()
-            windows = (time_ns // window_len).astype(np.uint64)
-            toggle_windows = toggles.groupby(by=windows,axis=0).sum()
-            ones_windows = sigbits.groupby(by=windows,axis=0).sum()
+    #         # window data
+    #         time_ns = sigbits.index.values * self.scale_to_ns()
+    #         windows = (time_ns // window_len).astype(np.uint64)
+    #         toggle_windows = toggles.groupby(by=windows,axis=0).sum()
+    #         ones_windows = sigbits.groupby(by=windows,axis=0).sum()
 
-            toggles_l.append(toggle_windows)
-            ones_l.append(ones_windows)
+    #         toggles_l.append(toggle_windows)
+    #         ones_l.append(ones_windows)
 
-            times['window'] += datetime.now() - chkpt
-            chkpt = datetime.now()
+    #         times['window'] += datetime.now() - chkpt
+    #         chkpt = datetime.now()
             
         
-        dfs = []
-        for l in [toggles_l,ones_l]:
-            df = pd.concat(l,axis=1).sort_index()
-            df.index = df.index.astype(np.uint64)
-            df = df.fillna(0).astype(np.uint16)
-            df.index.name = 'window'
-            dfs.append(df)
+    #     dfs = []
+    #     for l in [toggles_l,ones_l]:
+    #         df = pd.concat(l,axis=1).sort_index()
+    #         df.index = df.index.astype(np.uint64)
+    #         df = df.fillna(0).astype(np.uint16)
+    #         df.index.name = 'window'
+    #         dfs.append(df)
         
-        times['concat'] += datetime.now() - chkpt
+    #     times['concat'] += datetime.now() - chkpt
 
-        print("\tDone")
+    #     print("\tDone")
 
-        for k,t in times.items():
-            print(k,round(t.total_seconds(),1))
+    #     for k,t in times.items():
+    #         print(k,round(t.total_seconds(),1))
 
-        return (df for df in dfs)
+    #     return (df for df in dfs)
 
 

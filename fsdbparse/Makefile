@@ -28,8 +28,6 @@ arch = linux64
 INC_DIR = /tools/synopsys/verdi/$(VERDI_VERSION)/share/FsdbReader
 LINUX_DIR = $(INC_DIR)/$(arch)
 
-LD_LIBRARY_PATH = $(INC_DIR)/linux64:/opt/rh/devtoolset-8/root/usr/lib64:$(LD_LIBRARY_PATH)
-
 include ./cpp/COMPILER_DEF.mk
 PORT_LIB_SEARCH = $(LINUX_DIR)/libnffr.so $(LINUX_DIR)/libnsys.so
 

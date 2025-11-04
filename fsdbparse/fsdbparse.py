@@ -9,17 +9,24 @@ import struct
 from datetime import datetime, timedelta
 
 
-from util import Util
-# from hiers import Hiers
+from fsdbparse import util
+from fsdbparse.globalvars import *
 
-VERDI_VERSION = 'W-2024.09-1'
-VERDI_HOME = Path(f"/tools/synopsys/verdi/{VERDI_VERSION}")
 
 class FSDBParse():
 
+    fsdbparse_dpath = Path(__file__).parent
+
     def setup_env():
         os.environ['VERDI_VERSION'] = VERDI_VERSION
-        os.environ['LD_LIBRARY_PATH'] = str(VERDI_HOME/"share/FsdbReader/linux64:/opt/rh/devtoolset-8/root/usr/lib64")
+        os.environ['LD_LIBRARY_PATH'] = f"{VERDI_HOME}/share/FsdbReader/linux64:/opt/rh/devtoolset-8/root/usr/lib64"
+
+
+    def dump_header(fsdb_fpath,header_fpath,verbose=False) -> None:
+        FSDBParse.setup_env()
+        cmd = f"{FSDBParse.fsdbparse_dpath}/print_header {fsdb_fpath} > {header_fpath}"
+        if verbose: print(cmd)
+        os.system(cmd)
 
 
     def get_dasm(sigvals: list):
@@ -37,85 +44,31 @@ class FSDBParse():
         return dasm
 
 
-    # def get_signals(rtlsim: RTLSim, signals_dict: dict,
-    #                 start_time: str = None,
-    #                 end_time: str = None):
-    #     '''
-    #     signals_dict = {
-    #         name: {
-    #             'signal': "/path/to/signal/in/design",
-                
-    #         }
-    #     }
-    #     '''
-    #     # 
-    #     # output_format: one of {b|o|d|u|h}
-    #     fsdbreport = f"/tools/synopsys/verdi/{VERDI_VERSION}/bin/fsdbreport"
-    #     waveform_fpath = str(rtlsim.fsdb_fpath[0])
-    #     if not os.path.exists(waveform_fpath):
-    #         print(f"# Warning: file does not exist ({waveform_fpath})")
-    #         return None
-    #     if os.path.exists(waveform_fpath+'.lock'):
-    #         print(f"# Warning: file is still being generated ({waveform_fpath})")
-    #         return None
-    #     out_fpath = Path(".sigvals")
-    #     cmd = f"{fsdbreport} {waveform_fpath} -o {out_fpath} -nolog"
-    #     # first add signals stuff
-    #     if any(['signal' in sd for sd in signals_dict.values()]):
-    #         cmd += " -s"
-    #         for s,sd in signals_dict.items():
-    #             if 'signal' in sd:
-    #                 cmd += f" {sd['signal']} -a {s}"
-    #                 if 'width' in sd:  cmd += f" -w {sd['width']}"
-    #                 if 'format' in sd:  cmd += f" -of {sd['format']}"
-
-    #     exps = [s for s,sd in signals_dict.items() if 'expression' in sd]
-    #     if len(exps) > 0:
-    #         e = exps[0]
-    #         ed = signals_dict[e]
-    #         cmd += f""" -exp "{ed['expression']}" -a {e}"""
-    #         if 'width' in ed:  cmd += f" -w {ed['width']}"
-
-    #     if start_time: cmd += f" -bt {start_time}"
-    #     if end_time: cmd += f" -et {end_time}"
-    #     subprocess.run(cmd.split(), env=os.environ,
-    #                     stdout=subprocess.DEVNULL,
-    #                     stderr=subprocess.STDOUT)
-    #     if not out_fpath.exists(): return None
-    #     with out_fpath.open('r') as f: lines = f.readlines()[2:]
-    #     lines_words = [l.split() for l in lines]
-    #     lines_words = [l for l in lines_words if len(l) == (len(signals_dict)+1)]
-    #     time = [int(l[0]) for l in lines_words] # remove 000 from end of each time
-    #     data_dict = {'time': [int(t/1000) for t in time]} # ps --> ns
-    #     for i,s in enumerate(signals_dict):
-    #         sd = signals_dict[s]
-    #         sigvals = [l[i+1] for l in lines_words]
-    #         data_dict[s] = sigvals
-    #         if 'dasm' in sd and sd['dasm']:
-    #             dasm = FSDBParse.get_dasm(sigvals)
-    #             data_dict[s+'_dasm'] = dasm
-    #     df = pd.DataFrame.from_dict(data_dict,orient='columns')
-    #     df = df.set_index('time')
-    #     out_fpath.unlink()  # remove file
-    #     return df
-
-
     def get_endtime(fp):
         return FSDBParse.get_fsdbinfo(fp)['end_ns']
 
 
     def get_fsdbinfo(fp: str = None):
-        fsdbdebug = VERDI_HOME/"bin/fsdbdebug"
-        args = [fsdbdebug, '-info', fp]
+        # this cmd sometimes freezes, so give it a timeout
+        cmd = f"timeout 3 {VERDI_HOME}/bin/fsdbdebug -info {fp}"
         FSDBParse.setup_env()
-        info = subprocess.run(args,capture_output=True,text=True)
+        info = subprocess.run(cmd,shell=True,capture_output=True,text=True)
         s = info.stderr
         key2val = {l.split(':')[0].strip(): l.split(':')[-1].strip() for l in s.split('\n') if ':' in l}
         endtime = key2val['maximum xtag'].split()[-1].replace('(','').replace(')','')
         d = {}
         d['endtime'] = endtime
-        d['end_ns'] = int(Util.to_ns(endtime))
+        d['end_ns'] = int(util.to_ns(endtime))
         return {**d,**key2val}
+
+
+    def get_siginfo_subset(signames,siginfo):
+        signames = [sn.replace('.','/') for sn in signames]
+        sn2id = {sn.split('[')[0]: idcode for idcode,slist in zip(siginfo.index,siginfo['signame']) for sn in slist.split(',')}
+        ids = [sn2id[sn] for sn in signames]
+        df = siginfo.loc[ids]
+        return df.loc[~df.index.duplicated(keep='first')].sort_index()
+
 
 
 class FSDBData():
@@ -152,8 +105,6 @@ class FSDBData():
         feature_ext_dict = dict(toggles='t',ones='o')
         self.feature_ext = feature_ext_dict[self.embedding]
 
-        self.fsdbparse_dpath = Path(__file__).parent
-
 
         if len(name_ext) > 0 and name_ext[0] != '.': name_ext = '.'+name_ext
         name_ext += f".windowlen-{self.windowlen}"
@@ -171,24 +122,18 @@ class FSDBData():
         self.fpaths['siginfo_stem'] = self.cache_dpath/"siginfo"/dirname
         self.fpaths['emb_bin'] = self.cache_dpath/self.embedding/dirname/f"{name}{name_ext}.bin"
         self.fpaths['emb_csc'] = self.cache_dpath/self.embedding/dirname/f"{name}{name_ext}.npz"
-        self.fpaths['hdbin'] = self.cache_dpath/f"hd/{dirname}/{name}{name_ext}.bin"
-        self.fpaths['hdcsc'] = self.cache_dpath/f"hd/{dirname}/{name}{name_ext}.npz"
         for fpath in self.fpaths.values():
             if fpath.suffix != '': fpath = fpath.parent
             fpath.mkdir(exist_ok=True,parents=True)
-        self.get_siginfo()
+        # get siginfo
+        fp = self.fpaths['siginfo_stem']/"siginfo.h5"
+        if not fp.exists(): self.generate_siginfo()
+        self.siginfo = pd.read_hdf(fp,key='df')
 
 
-    def dump_header(self,verbose=False) -> None:
-        verbose = verbose or self.verbose
-        FSDBParse.setup_env()
-        cmd = f"{str(self.fsdbparse_dpath)}/print_header {str(self.fsdb_fpath)} > {self.fpaths['header']}"
-        if verbose: print(cmd)
-        os.system(cmd)
-
- 
-    def dump_siginfo(self) -> None:
-        if not self.fpaths['header'].exists(): self.dump_header()
+    def generate_siginfo(self) -> None:
+        if not self.fpaths['header'].exists():
+            FSDBParse.dump_header(self.fsdb_fpath,self.fpaths['header'],verbose=self.verbose)
 
         signal_id_dict = {}
         id_width_dict = {}
@@ -226,12 +171,11 @@ class FSDBData():
                 if signal.endswith(':0]'):
                     width = signal.split('[')[-1]  # name[3][31:0] --> only keep 31:0]
                     width = int(width[:-3]) # remove :0]
-                    id_width_dict[idcode] = width
+                    id_width_dict[idcode] = width + 1
                 else:
-                    id_width_dict[idcode] = 0
+                    id_width_dict[idcode] = 1
 
         id_signals = sorted(id_signal_dict.items()) #[(i,s) for i,s in sorted(id_signal_dict.items())]
-        print(id_signals)
         ids = [id for id,_ in id_signals]
         sns = [','.join(ss) for _,ss in id_signals]
         sigwidths = [id_width_dict[id] for id in ids]
@@ -240,12 +184,15 @@ class FSDBData():
         df['idcode'] = ids
         df['sigwidth'] = sigwidths
         df = df.set_index('idcode')
+        df = df.loc[~df.index.duplicated(keep='first')].sort_index()
         FSDBData.write_siginfo(df,self.fpaths['siginfo_stem'])
 
 
     def write_siginfo(df,stem):
         stem = Path(stem)
         stem.mkdir(exist_ok=True,parents=True)
+
+        df = df.loc[~df.index.duplicated(keep='first')].sort_index()  # drop duplicate idcodes
 
         num_idcodes = len(df)
 
@@ -260,18 +207,19 @@ class FSDBData():
                     fid.write(f"{id} ")
                     fsw.write(f"{sigwidth} ")
         
-        df.to_hdf(siginfo_fpath,key='df',complevel=9)
+        df.to_hdf(siginfo_fpath,key='df',mode='w',complevel=9)
 
 
-    def write_siginfo_sigset(self,df,sigset: str):
+    def generate_siginfo_sigset(self, sigset: str, signames: list) -> pd.DataFrame:
+        df = FSDBParse.get_siginfo_subset(signames,self.siginfo)
+        self.write_siginfo_sigset(df,sigset)
+        return df
+
+
+    def write_siginfo_sigset(self,df: pd.DataFrame, sigset: str):
         stem = self.cache_dpath/f"siginfo/{self.rtl+'.sigs-'+sigset}"
-        FSDBData.write_siginfo(df,stem)
+        FSDBData.write_siginfo(df,stem)        
 
-
-    def get_siginfo(self) -> pd.DataFrame:
-        fp = self.fpaths['siginfo_stem']/"siginfo.h5"
-        if not fp.exists(): self.dump_siginfo()
-        self.siginfo = pd.read_hdf(fp,key='df')
 
     def add_bit(s,b):
         bit_str = b if type(b) == str else f"-b_{b}"
@@ -344,11 +292,11 @@ class FSDBData():
 
         if self.verbose: print(f"# Dumping {self.embedding} for {self.name}")
         idcodes_fpath = self.fpaths['siginfo_stem']/"idcodes.txt"
-        if not idcodes_fpath.exists(): self.dump_siginfo()
+        if not idcodes_fpath.exists(): self.generate_siginfo()
         executable = 'dump_embedding'
         FSDBParse.setup_env()
 
-        cmd =  f"{str(self.fsdbparse_dpath)}/{executable}"
+        cmd =  str(FSDBParse.fsdbparse_dpath/"dump_embedding")
         cmd += f" --fsdb {fsdb_fpath}"
         cmd += f" --idcodes {idcodes_fpath}"
         cmd += f" --windowlen {self.windowlen}"
@@ -379,7 +327,7 @@ class FSDBData():
         try:
             arr_reshape = array.reshape(N,-1)
         except ValueError:
-            print(f"WARNING: Incomplete file (len={N}) at {bin_fpath}")
+            print(f"WARNING: Incomplete file (len={len(array)}, num rows={len(array)//N}) at {bin_fpath}")
             return
         w_embedding = np.transpose(arr_reshape)
         toggles = np.concatenate([toggles,w_embedding],axis=0) if toggles is not None else w_embedding
@@ -390,8 +338,8 @@ class FSDBData():
         scipy.sparse.save_npz(self.fpaths['emb_csc'],sparse_matrix)
 
 
-    def get_embedding(self, index=True, columns=None, print_only=False) -> pd.DataFrame:
-        self.print_only = print_only
+    def get_embedding(self, index=True, print_only=False) -> pd.DataFrame:
+        self.print_only = print_only or self.print_only
         csc_fpath = self.fpaths['emb_csc']
         if not csc_fpath.exists() or self.overwrite: self.compress_embedding()
         if not csc_fpath.exists(): return pd.DataFrame()
@@ -403,15 +351,14 @@ class FSDBData():
         w_embedding = sparse_matrix.toarray()
         if index:
             if self.intervals:
-                intervals = Util.load_vector(self.intervals)
+                intervals = util.load_vector(self.intervals)
                 intervals = np.array([(s,e) for s,e in zip(intervals[::2],intervals[1::2])])
                 intervals = intervals // self.windowlen
                 windows = [i for s,e in intervals for i in range(s,e)]
             else:
                 windows = range(w_embedding.shape[0])
             index = pd.Index([self.name+f".{i}" for i in windows],name='name.window')
-        columns = self.siginfo['signame'] if columns is None else columns
-        df = pd.DataFrame(w_embedding,index=index,columns=columns)
+        df = pd.DataFrame(w_embedding,index=index,columns=self.siginfo['signame'])
         # df = df[df.columns[~df.columns.str.contains("\[")]]
         if self.verbose: print(f"{self.name} {df.shape}...",end='')
         return df

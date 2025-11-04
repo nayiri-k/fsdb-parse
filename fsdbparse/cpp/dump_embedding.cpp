@@ -226,13 +226,13 @@ main(int argc, char *argv[])
     ulong_T sim_end_simtime = ((ulong_T) end_tagtime.H << 32) + end_tagtime.L;
     if ((sim_end_simtime < end_simtime) || (end_simtime == 0)) end_simtime = sim_end_simtime;
 
+    uint_T TW_L = WINDOWLEN * TIMESCALE;  // time window length
+
     if (verbose) {
         fprintf(stderr, "Start time: %lu %s\n", start_simtime,unit);
         fprintf(stderr, "End time:   %lu %s\n",   end_simtime,unit);
+        fprintf(stderr, "Time window length:   %u %s\n", TW_L,unit);
     }
-
-
-    uint_T TW_L = WINDOWLEN * TIMESCALE;  // time window length
 
 
     FILE *f_idcodes = fopen(fpath_idcodes, "r");
@@ -243,7 +243,7 @@ main(int argc, char *argv[])
 
     // LOAD IDCODES FROM FILE
     // first value of idcodes file is the number of idcodes
-    uint_T N_ROWS, M_COLS;
+    uint_T N_ROWS;
     fscanf(f_idcodes, "%u ", &N_ROWS);
     uint_T* idcodes_buff = (uint_T*) malloc(N_ROWS*sizeof(uint_T));
     uint_T i = 0; uint_T idcode;
@@ -251,12 +251,14 @@ main(int argc, char *argv[])
         idcodes_buff[i] = idcode;
         i += 1;
     }
-    
-    FILE *f_toggles = fopen(fpath_toggles, "wb");
-    if (f_toggles == NULL) {
-        fprintf(stderr, "ERROR: File could not be created, %s\n", fpath_toggles);
-        return 0;
-    }
+
+    // ALLOCATE EMBEDDINGS BUFFER
+    ulong_T M_COLS = (ulong_T) ((float) end_simtime - start_simtime)/((float) TW_L);  // # columns = # time entries
+    if (verbose) fprintf(stderr, "Number of signals to process: %u\n", N_ROWS);
+    if (verbose) fprintf(stderr, "Number of time windows: %u\n", M_COLS);
+    if (verbose) fprintf(stderr, "Array shape: (%u,%u)\n", N_ROWS, M_COLS);
+    BUFFER_TYPE* buff_sigembs = (BUFFER_TYPE*) malloc(M_COLS*sizeof(BUFFER_TYPE));
+
 
     if (FSDB_FT_VERILOG != fsdb_obj->ffrGetFileType()) { fprintf(stderr, "%s is not verilog type fsdb, just return.\n", fpath_fsdb); fsdb_obj->ffrClose(); return FSDB_RC_SUCCESS; }
 
@@ -279,22 +281,24 @@ main(int argc, char *argv[])
 
     int	      glitch_num;
     byte_T    *vc_ptr;
-    byte_T    *prev_vc_ptr;
 
     uint_T cntr = 0;
 
-    M_COLS = (uint_T) (end_simtime - start_simtime)/TW_L;  // # columns = # time entries
 
-    if (verbose) fprintf(stderr, "Number of signals to process: %u\n", N_ROWS);
-    if (verbose) fprintf(stderr, "Number of time windows: %u\n", M_COLS);
-    if (verbose) fprintf(stderr, "Array shape: (%u,%u)\n", N_ROWS, M_COLS);
-    
-    BUFFER_TYPE* buff_sigembs = (BUFFER_TYPE*) malloc(M_COLS*sizeof(BUFFER_TYPE));
+    FILE *f_toggles = fopen(fpath_toggles, "wb");
+    if (f_toggles == NULL) {
+        fprintf(stderr, "ERROR: File could not be created, %s\n", fpath_toggles);
+        return 0;
+    }
+
+
     
     if (verbose) fprintf(stderr, "Reading idcodes from: %s\n", fpath_idcodes);
     if (verbose) fprintf(stderr, "Writing to file: %s\n", fpath_toggles);
 
-    uint_T sig_bitwidth, val_sigemb;
+    uint_T sig_bitwidth;
+    BUFFER_TYPE val_sigemb;
+    ulong_T val_ones;
 
     ffrVCTrvsHdl vc_trvs_hdl;
     
@@ -312,6 +316,8 @@ main(int argc, char *argv[])
         vc_trvs_hdl->ffrGotoXTag((void*)&start_tagtime);
         vc_trvs_hdl->ffrGetVC(&vc_ptr);
         sig_bitwidth = vc_trvs_hdl->ffrGetBitSize();
+        byte_T* prev_vc = (byte_T*) malloc(sig_bitwidth*sizeof(byte_T));
+        // if (idcode == 18401) printf("sig_bitwidth %u\n",sig_bitwidth);
 
         ulong_T time_window = TW_L + start_simtime;
         ulong_T prev_vc_simtime, current_vc_simtime = 0;
@@ -320,45 +326,56 @@ main(int argc, char *argv[])
         uint_T ibit;
         // zero out buffer
         memset(buff_sigembs, (BUFFER_TYPE) 0, M_COLS*sizeof(BUFFER_TYPE));
+        val_sigemb = 0; val_ones = 0;
         do {
             vc_trvs_hdl->ffrGetXTag(&current_tagtime);
-            prev_vc_ptr = vc_ptr;
-            vc_trvs_hdl->ffrGetVC(&vc_ptr);
-
             prev_vc_simtime = current_vc_simtime;
             current_vc_simtime = ((ulong_T) current_tagtime.H << 32) + current_tagtime.L;
+            // copy vals to old vc ptr
+            for (ibit=0; ibit<sig_bitwidth; ibit++) {
+                prev_vc[ibit] = vc_ptr[ibit];
+            }
+            vc_trvs_hdl->ffrGetVC(&vc_ptr);
             if (current_vc_simtime <= start_simtime) {
                 continue;
             } else if ((end_simtime != 0) && (current_vc_simtime > end_simtime)) {
                 break;
             } else if (current_vc_simtime >= time_window) {
-                // write previous time window
-                buff_sigembs[idx_sigemb] = (BUFFER_TYPE) val_sigemb;
+                // if (idcode == 18404) printf("1 %lu %lu %lu %u %u \n",prev_vc_simtime,time_window,val_ones,TW_L,val_sigemb);
+                // if (idcode == 18404) printf("1 %lu %lu %lu %u %u \n",prev_vc_simtime,time_window,val_ones,TW_L,val_sigemb);
                 // bump up time_window to point to current time window
                 while (current_vc_simtime >= time_window) {
                     if (emb_ones) {
                         for (ibit=0; ibit<sig_bitwidth; ibit++) {
-                            if (prev_vc_ptr[ibit] == FSDB_BT_VCD_1) val_sigemb += (uint_T) 2*(time_window - prev_vc_simtime)/TW_L;
+                            if (prev_vc[ibit] == FSDB_BT_VCD_1) val_ones += time_window - prev_vc_simtime;
                         }
-                        buff_sigembs[idx_sigemb] = (BUFFER_TYPE) val_sigemb;
+                        val_sigemb = (BUFFER_TYPE)((float) val_ones / ((float)TW_L/1000.0));
+                        // if (idcode == 18404) printf("2 %lu %lu %lu %u %u \n",prev_vc_simtime,time_window,val_ones,TW_L,val_sigemb);
                     }
-                    val_sigemb = 0;
+                    if (idcode == 18404) printf("%lu %lu %u \n",prev_vc_simtime,time_window,val_sigemb);
+                    buff_sigembs[idx_sigemb] = val_sigemb;
+                    val_ones = 0; val_sigemb = 0;
                     prev_vc_simtime = time_window;
                     time_window += TW_L; idx_sigemb += 1;
                 }
                 if (idx_sigemb > M_COLS) { fprintf(stderr, "ERROR: index exceeds number of columns (idx: %u, curr_simtime: %lu)\n", idx_sigemb, current_vc_simtime); return 0; }
-                val_sigemb = 0;
             }
             for (ibit=0; ibit<sig_bitwidth; ibit++) {
-                if (emb_toggles && (prev_vc_ptr[ibit] != vc_ptr[ibit]))
+                // if (idcode == 18408) printf("idx=%u,b0 vs b1 %u %u\n",idx_sigemb,prev_vc[ibit],vc_ptr[ibit]);
+                if (emb_toggles && (prev_vc[ibit] != vc_ptr[ibit]))
                     val_sigemb++;
-                else if (emb_ones && (prev_vc_ptr[ibit] == FSDB_BT_VCD_1))
-                    val_sigemb += (uint_T) 2*(current_vc_simtime - prev_vc_simtime)/TW_L;
+                else if (emb_ones && (prev_vc[ibit] == FSDB_BT_VCD_1))
+                {
+                    val_ones += current_vc_simtime - prev_vc_simtime;
+                }
+                    
             }
         } while(FSDB_RC_SUCCESS == vc_trvs_hdl->ffrGotoNextVC());
         // NOTE (nk): technically we throw out last incomplete time window
         // free this value change traverse handle
         vc_trvs_hdl->ffrFree();
+
+        free(prev_vc);
 
         // write data to buffer
         fwrite(buff_sigembs, sizeof(BUFFER_TYPE), M_COLS, f_toggles);
