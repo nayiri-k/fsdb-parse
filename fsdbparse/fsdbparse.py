@@ -127,7 +127,10 @@ class FSDBData():
             fpath.mkdir(exist_ok=True,parents=True)
         # get siginfo
         fp = self.fpaths['siginfo_stem']/"siginfo.h5"
-        if not fp.exists(): self.generate_siginfo()
+        if not fp.exists():
+            if sigset is not None:
+                raise Exception(f"Siginfo file for sigset {sigset} does not exist, {fp}")
+            self.generate_siginfo()
         self.siginfo = pd.read_hdf(fp,key='df')
 
 
@@ -322,7 +325,7 @@ class FSDBData():
             print(f"WARNING: Empty file at {bin_fpath}")
             return
         # assert len(array) > 0, f"Empty array in {self.fpaths['emb_bin']}"
-        N = len(self.siginfo) # M = int(len(array)/N)
+        N = self.siginfo['sigwidth'].sum()
         try:
             arr_reshape = array.reshape(N,-1)
         except ValueError:
@@ -355,7 +358,8 @@ class FSDBData():
             else:
                 windows = range(w_embedding.shape[0])
             index = pd.Index([self.name+f".{i}" for i in windows],name='name.window')
-        df = pd.DataFrame(w_embedding,index=index,columns=self.siginfo['signame'])
+        signames = [f"{n}-bit{i}" for n,w in zip(self.siginfo['signame'],self.siginfo['sigwidth']) for i in range(w)]
+        df = pd.DataFrame(w_embedding,index=index,columns=signames)
         # df = df[df.columns[~df.columns.str.contains("\[")]]
         if self.verbose: print(f"{self.name} {df.shape}...",end='')
         return df

@@ -113,7 +113,7 @@ class NPI():
         sigvals = sigvals.ffill(axis=0)
 
         sigbits = {}
-        if sw > 1:
+        if sw > 0:
             for bit in range(0,sw):
                 sigbits[sn+f'-bit{bit}'] = sigvals.str[bit]
             sigbits = pd.DataFrame(sigbits)
@@ -136,9 +136,9 @@ class NPI():
             # idxs = [i for i in range(window_ns-1,int(time_ns[-1]+window_ns),window_ns)]
             idxs = [i for i in range(0,int(time_ns[-1]+window_ns),window_ns)]
             idxs = [int(i / self.scale_to_ns()) for i in idxs if i not in sigbits.index]
-            sigbits = pd.concat([sigbits,
-                                    pd.DataFrame(pd.NA,index=idxs,columns=sigbits.columns)],
-                                    axis=0).sort_index().ffill() 
+            sigbits = pd.concat([sigbits.astype("boolean"),
+                                    pd.DataFrame(pd.NA,index=idxs,columns=sigbits.columns,dtype="boolean")],
+                                    axis=0).sort_index().ffill().astype(bool)
             times = sigbits.index.values
             time_ns = times * self.scale_to_ns()
             windows = (time_ns // window_ns).astype(np.uint64)
@@ -163,7 +163,7 @@ class NPI():
             df_emb = pd.concat(dfs,axis=1)
 
         # window data
-        grouped = df_emb.groupby(by=windows,axis=0)
+        grouped = df_emb.groupby(by=windows)
         if emb['trans']:    df_windows = grouped.any()
         else:               df_windows = grouped.sum()
         df_windows = df_windows.astype(np.uint16)  # window values are small

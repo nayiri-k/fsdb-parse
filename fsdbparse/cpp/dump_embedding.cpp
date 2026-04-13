@@ -217,7 +217,7 @@ main(int argc, char *argv[])
         fprintf(stderr, "Unsupported signal embedding value: %s\n", embedding);
         exit(1);
     }
-    fprintf(stderr, "Embeddings: toggles-%u, ones-%u, trans-\n", emb_toggles,emb_ones,emb_trans);
+    fprintf(stderr, "Embeddings: toggles-%u, ones-%u, trans-%u\n", emb_toggles,emb_ones,emb_trans);
 
     // START/END SIM TIMES
     fsdbTag64 current_tagtime,start_tagtime,end_tagtime;
@@ -282,8 +282,11 @@ main(int argc, char *argv[])
 
     int	      glitch_num;
     byte_T    *vc_ptr;
+    byte_T    prev_vc_bitval;
 
     uint_T cntr = 0;
+    uint_T isig;
+    uint_T ibit;
 
 
     FILE *f_toggles = fopen(fpath_toggles, "wb");
@@ -303,8 +306,8 @@ main(int argc, char *argv[])
 
     ffrVCTrvsHdl vc_trvs_hdl;
     
-    for (i = 0; i < N_ROWS; i++) {
-        idcode = idcodes_buff[i];
+    for (isig = 0; isig < N_ROWS; isig++) {
+        idcode = idcodes_buff[isig];
         // create a value change traverse handle associated with
         // current traversed var.
         vc_trvs_hdl = fsdb_obj->ffrCreateVCTraverseHandle(idcode);
@@ -313,78 +316,76 @@ main(int argc, char *argv[])
                 idcode);
             exit(FSDB_RC_OBJECT_CREATION_FAILED);
             }
-
         vc_trvs_hdl->ffrGotoXTag((void*)&start_tagtime);
         vc_trvs_hdl->ffrGetVC(&vc_ptr);
         sig_bitwidth = vc_trvs_hdl->ffrGetBitSize();
-        byte_T* prev_vc = (byte_T*) malloc(sig_bitwidth*sizeof(byte_T));
-        // if (idcode == 18401) printf("sig_bitwidth %u\n",sig_bitwidth);
 
-        ulong_T time_window = TW_L + start_simtime;
-        ulong_T prev_vc_simtime, current_vc_simtime = 0;
-
-        uint_T idx_sigemb = 0;
-        uint_T ibit;
-        // zero out buffer
-        memset(buff_sigembs, (BUFFER_TYPE) 0, M_COLS*sizeof(BUFFER_TYPE));
-        val_sigemb = 0; val_ones = 0;
-        do {
-            vc_trvs_hdl->ffrGetXTag(&current_tagtime);
-            prev_vc_simtime = current_vc_simtime;
-            current_vc_simtime = ((ulong_T) current_tagtime.H << 32) + current_tagtime.L;
-            // copy vals to old vc ptr
-            for (ibit=0; ibit<sig_bitwidth; ibit++) {
-                prev_vc[ibit] = vc_ptr[ibit];
+        for (ibit = 0; ibit < sig_bitwidth; ibit++) {
+            if (ibit > 0) {
+                // recreate traverse handle for new bit
+                vc_trvs_hdl = fsdb_obj->ffrCreateVCTraverseHandle(idcode);
+                vc_trvs_hdl->ffrGotoXTag((void*)&start_tagtime);
+                vc_trvs_hdl->ffrGetVC(&vc_ptr);
             }
-            vc_trvs_hdl->ffrGetVC(&vc_ptr);
-            if (current_vc_simtime <= start_simtime) {
-                continue;
-            } else if ((end_simtime != 0) && (current_vc_simtime > end_simtime)) {
-                break;
-            } else if (current_vc_simtime >= time_window) {
-                // if (idcode == 18404) printf("1 %lu %lu %lu %u %u \n",prev_vc_simtime,time_window,val_ones,TW_L,val_sigemb);
-                // if (idcode == 18404) printf("1 %lu %lu %lu %u %u \n",prev_vc_simtime,time_window,val_ones,TW_L,val_sigemb);
-                // bump up time_window to point to current time window
-                while (current_vc_simtime >= time_window) {
-                    if (emb_ones) {
-                        for (ibit=0; ibit<sig_bitwidth; ibit++) {
-                            if (prev_vc[ibit] == FSDB_BT_VCD_1) val_ones += time_window - prev_vc_simtime;
+
+            ulong_T time_window = TW_L + start_simtime;
+            ulong_T prev_vc_simtime, current_vc_simtime = 0;
+
+            uint_T idx_sigemb = 0;
+            // zero out buffer
+            memset(buff_sigembs, (BUFFER_TYPE) 0, M_COLS*sizeof(BUFFER_TYPE));
+            val_sigemb = 0; val_ones = 0;
+            do {
+                vc_trvs_hdl->ffrGetXTag(&current_tagtime);
+                prev_vc_simtime = current_vc_simtime;
+                current_vc_simtime = ((ulong_T) current_tagtime.H << 32) + current_tagtime.L;
+                // copy vals to old vc ptr (can't assign ptr bc old vc_ptr gets de-allocated)
+                prev_vc_bitval = vc_ptr[ibit];
+                vc_trvs_hdl->ffrGetVC(&vc_ptr);
+                if (current_vc_simtime <= start_simtime) {
+                    continue;
+                } else if ((end_simtime != 0) && (current_vc_simtime > end_simtime)) {
+                    break;
+                } else if (current_vc_simtime >= time_window) {
+                    // if (idcode == 18404) printf("1 %lu %lu %lu %u %u \n",prev_vc_simtime,time_window,val_ones,TW_L,val_sigemb);
+                    // if (idcode == 18404) printf("1 %lu %lu %lu %u %u \n",prev_vc_simtime,time_window,val_ones,TW_L,val_sigemb);
+                    // bump up time_window to point to current time window
+                    while (current_vc_simtime >= time_window) {
+                        if (emb_ones) {
+                            if (prev_vc_bitval == FSDB_BT_VCD_1) val_ones += time_window - prev_vc_simtime;
+                            val_sigemb = (BUFFER_TYPE)((float) val_ones / ((float)TW_L/1000.0));
                         }
-                        val_sigemb = (BUFFER_TYPE)((float) val_ones / ((float)TW_L/1000.0));
-                        // if (idcode == 18404) printf("2 %lu %lu %lu %u %u \n",prev_vc_simtime,time_window,val_ones,TW_L,val_sigemb);
+                        // nothing happens for toggles/trans since we didn't transition in previous windows
+                        buff_sigembs[idx_sigemb] = val_sigemb;
+                        val_ones = 0; val_sigemb = 0;
+                        prev_vc_simtime = time_window;
+                        time_window += TW_L; idx_sigemb += 1;
                     }
-                    // if (idcode == 18404) printf("%lu %lu %u \n",prev_vc_simtime,time_window,val_sigemb);
-                    buff_sigembs[idx_sigemb] = val_sigemb;
-                    val_ones = 0; val_sigemb = 0;
-                    prev_vc_simtime = time_window;
-                    time_window += TW_L; idx_sigemb += 1;
+                    if (idx_sigemb > M_COLS) { fprintf(stderr, "ERROR: index exceeds number of columns (idx: %u, curr_simtime: %lu)\n", idx_sigemb, current_vc_simtime); return 0; }
                 }
-                if (idx_sigemb > M_COLS) { fprintf(stderr, "ERROR: index exceeds number of columns (idx: %u, curr_simtime: %lu)\n", idx_sigemb, current_vc_simtime); return 0; }
-            }
-            for (ibit=0; ibit<sig_bitwidth; ibit++) {
-                // if (idcode == 18408) printf("idx=%u,b0 vs b1 %u %u\n",idx_sigemb,prev_vc[ibit],vc_ptr[ibit]);
                 if (emb_trans) {
                     val_sigemb = 1;
                 }
-                else if (emb_toggles && (prev_vc[ibit] != vc_ptr[ibit])) {
+                // this specific bit toggled
+                else if (emb_toggles && (prev_vc_bitval != vc_ptr[ibit])) {
                     val_sigemb++;
                 }
-                else if (emb_ones && (prev_vc[ibit] == FSDB_BT_VCD_1))
+                // this specific bit was high
+                else if (emb_ones && (prev_vc_bitval == FSDB_BT_VCD_1))
                 {
                     val_ones += current_vc_simtime - prev_vc_simtime;
-                }
-                    
-            }
-        } while(FSDB_RC_SUCCESS == vc_trvs_hdl->ffrGotoNextVC());
-        // NOTE (nk): technically we throw out last incomplete time window
-        // free this value change traverse handle
-        vc_trvs_hdl->ffrFree();
+                }  
+            } while(FSDB_RC_SUCCESS == vc_trvs_hdl->ffrGotoNextVC());
+            // NOTE (nk): technically we throw out last incomplete time window
+            // free this value change traverse handle
+            vc_trvs_hdl->ffrFree();
 
-        free(prev_vc);
+            
 
-        // write data to buffer
-        fwrite(buff_sigembs, sizeof(BUFFER_TYPE), M_COLS, f_toggles);
-    }
+            // write data to buffer
+            fwrite(buff_sigembs, sizeof(BUFFER_TYPE), M_COLS, f_toggles);
+        } // ibit
+    } // isig
     
     free(buff_sigembs);
     
